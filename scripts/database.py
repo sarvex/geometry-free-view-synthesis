@@ -123,10 +123,7 @@ def pair_id_to_image_ids(pair_id):
 
 
 def array_to_blob(array):
-    if IS_PYTHON3:
-        return array.tostring()
-    else:
-        return np.getbuffer(array)
+    return array.tostring() if IS_PYTHON3 else np.getbuffer(array)
 
 
 def blob_to_array(blob, dtype, shape=(-1,)):
@@ -313,10 +310,12 @@ def example_usage():
 
     # Read and check keypoints.
 
-    keypoints = dict(
-        (image_id, blob_to_array(data, np.float32, (-1, 2)))
+    keypoints = {
+        image_id: blob_to_array(data, np.float32, (-1, 2))
         for image_id, data in db.execute(
-            "SELECT image_id, data FROM keypoints"))
+            "SELECT image_id, data FROM keypoints"
+        )
+    }
 
     assert np.allclose(keypoints[image_id1], keypoints1)
     assert np.allclose(keypoints[image_id2], keypoints2)
@@ -330,11 +329,10 @@ def example_usage():
                  (image_id2, image_id3),
                  (image_id3, image_id4))]
 
-    matches = dict(
-        (pair_id_to_image_ids(pair_id),
-         blob_to_array(data, np.uint32, (-1, 2)))
+    matches = {
+        pair_id_to_image_ids(pair_id): blob_to_array(data, np.uint32, (-1, 2))
         for pair_id, data in db.execute("SELECT pair_id, data FROM matches")
-    )
+    }
 
     assert np.all(matches[(image_id1, image_id2)] == matches12)
     assert np.all(matches[(image_id2, image_id3)] == matches23)

@@ -18,15 +18,9 @@ class ACIDSparseBase(Dataset, PRNGMixin):
         frames = sorted([fname for fname in os.listdir(os.path.join(root, "images")) if fname.endswith(".png")])
         segments = self.prng.choice(3, 2, replace=False)
         if segments[0] < segments[1]: # forward
-            if segments[1]-segments[0] == 1: # small
-                label = 0
-            else:
-                label = 1 # large
+            label = 0 if segments[1]-segments[0] == 1 else 1
         else: # backward
-            if segments[1]-segments[0] == 1: # small
-                label = 2
-            else:
-                label = 3
+            label = 2 if segments[1]-segments[0] == 1 else 3
         n = len(frames)
         dst_indices = list(range(segments[0]*n//3, (segments[0]+1)*n//3))
         src_indices = list(range(segments[1]*n//3, (segments[1]+1)*n//3))
@@ -99,10 +93,10 @@ class ACIDCustomTest(Dataset):
         with open(self.frames_file, "r") as f:
             frames = f.read().splitlines()
 
-        seq_data = dict()
+        seq_data = {}
         for line in frames:
             seq,a,b,c = line.split(",")
-            assert not seq in seq_data
+            assert seq not in seq_data
             seq_data[seq] = [a,b,c]
 
         # sequential list of seq, label, dst, src
@@ -111,14 +105,17 @@ class ACIDCustomTest(Dataset):
         # 1: large forward movement
         # 2: small backward movement (reverse of 0)
         # 3: large backward movement (reverse of 1)
-        frame_data = list()
+        frame_data = []
         for seq in sorted(seq_data.keys()):
             abc = seq_data[seq]
-            frame_data.append([seq, 0, abc[1], abc[0]]) # b|a
-            frame_data.append([seq, 1, abc[2], abc[0]]) # c|a
-            frame_data.append([seq, 2, abc[0], abc[1]]) # a|b
-            frame_data.append([seq, 3, abc[0], abc[2]]) # a|c
-
+            frame_data.extend(
+                (
+                    [seq, 0, abc[1], abc[0]],
+                    [seq, 1, abc[2], abc[0]],
+                    [seq, 2, abc[0], abc[1]],
+                    [seq, 3, abc[0], abc[2]],
+                )
+            )
         self.frame_data = frame_data
 
     def __len__(self):

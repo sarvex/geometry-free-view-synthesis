@@ -54,7 +54,7 @@ class VQModel(pl.LightningModule):
         for k in keys:
             for ik in ignore_keys:
                 if k.startswith(ik):
-                    print("Deleting key {} from state_dict.".format(k))
+                    print(f"Deleting key {k} from state_dict.")
                     del sd[k]
         self.load_state_dict(sd, strict=False)
         print(f"Restored from {path}")
@@ -67,20 +67,16 @@ class VQModel(pl.LightningModule):
 
     def decode(self, quant):
         quant = self.post_quant_conv(quant)
-        dec = self.decoder(quant)
-        return dec
+        return self.decoder(quant)
 
     def decode_code(self, code_b):
         quant_b = self.quantize.embed_code(code_b)
-        dec = self.decode(quant_b)
-        return dec
+        return self.decode(quant_b)
 
     def forward(self, input, return_pred_indices=False):
         quant, diff, (_,_,ind) = self.encode(input)
         dec = self.decode(quant)
-        if return_pred_indices:
-            return dec, diff, ind
-        return dec, diff
+        return (dec, diff, ind) if return_pred_indices else (dec, diff)
 
     def get_input(self, batch, k):
         x = batch[k]
@@ -175,7 +171,6 @@ class VQModel(pl.LightningModule):
         return self.decoder.conv_out.weight
 
     def log_images(self, batch, **kwargs):
-        log = dict()
         x = self.get_input(batch, self.image_key)
         x = x.to(self.device)
         xrec, _ = self(x)
@@ -184,9 +179,7 @@ class VQModel(pl.LightningModule):
             assert xrec.shape[1] > 3
             x = self.to_rgb(x)
             xrec = self.to_rgb(xrec)
-        log["inputs"] = x
-        log["reconstructions"] = xrec
-        return log
+        return {"inputs": x, "reconstructions": xrec}
 
     def to_rgb(self, x):
         assert self.image_key == "segmentation"

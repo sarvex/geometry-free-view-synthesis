@@ -40,7 +40,7 @@ CKPT_MAP = {
     "ac_impl_nodepth": "geofree/ac_impl_nodepth/last.ckpt",
 }
 CACHE = os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache"))
-CKPT_MAP = dict((k, os.path.join(CACHE, CKPT_MAP[k])) for k in CKPT_MAP)
+CKPT_MAP = {k: os.path.join(CACHE, CKPT_MAP[k]) for k in CKPT_MAP}
 
 MD5_MAP = {
     "vgg_lpips": "d507d7349b931f0638a25a48a722f98a",
@@ -79,9 +79,9 @@ def md5_hash(path):
 
 def get_local_path(name, root=None, check=False):
     path = CKPT_MAP[name]
-    if not os.path.exists(path) or (check and not md5_hash(path) == MD5_MAP[name]):
+    if not os.path.exists(path) or check and md5_hash(path) != MD5_MAP[name]:
         assert name in URL_MAP, name
-        print("Downloading {} from {} to {}".format(name, URL_MAP[name], path))
+        print(f"Downloading {name} from {URL_MAP[name]} to {path}")
         download(URL_MAP[name], path)
         md5 = md5_hash(path)
         assert md5 == MD5_MAP[name], md5
@@ -92,7 +92,7 @@ def pretrained_models(model="re_impl_nodepth"):
     prefix = model[:2]
     assert prefix in ["re", "ac"], "not implemented"
 
-    config_path = get_local_path(model+"_config")
+    config_path = get_local_path(f"{model}_config")
     config = OmegaConf.load(config_path)
     config.model.params.first_stage_config.params["ckpt_path"] = get_local_path(f"{prefix}_first_stage")
     config.model.params.depth_stage_config.params["ckpt_path"] = get_local_path(f"{prefix}_depth_stage")

@@ -21,9 +21,7 @@ class SOSProvider(AbstractEncoder):
         # get batch size from data and replicate sos_token
         c = torch.ones(x.shape[0], 1)*self.sos_token
         c = c.long().to(x.device)
-        if self.quantize_interface:
-            return None, None, [None, None, c]
-        return c
+        return (None, None, [None, None, c]) if self.quantize_interface else c
 
 
 def count_params(model, verbose=False):
@@ -101,9 +99,8 @@ class ActNorm(nn.Module):
                     "Initializing ActNorm in reverse direction is "
                     "disabled by default. Use allow_reverse_init=True to enable."
                 )
-            else:
-                self.initialize(output)
-                self.initialized.fill_(1)
+            self.initialize(output)
+            self.initialized.fill_(1)
 
         if len(output.shape) == 2:
             output = output[:,:,None,None]
@@ -144,7 +141,7 @@ class MultiEmbedder(nn.Module):
 
     def forward(self, **kwargs):
         values = [kwargs[k] for k in self.keys]
-        inputs = list()
+        inputs = []
         for k in self.keys:
             entry = kwargs[k].reshape(kwargs[k].shape[0], -1, self.n_channels)
             inputs.append(entry)
@@ -165,7 +162,7 @@ class SpatialEmbedder(nn.Module):
         self.linear = nn.Conv2d(self.n_channels, self.n_embed, 1, bias=bias)
 
     def forward(self, **kwargs):
-        inputs = list()
+        inputs = []
         for k in self.keys:
             entry = kwargs[k].reshape(kwargs[k].shape[0], -1, 1, 1)
             inputs.append(entry)

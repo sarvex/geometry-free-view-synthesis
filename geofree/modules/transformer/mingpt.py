@@ -267,7 +267,7 @@ class WarpGPT(GPT):
         assert "n_unmasked" in kwargs and kwargs["n_unmasked"] != 0
         warper_config = kwargs.pop("warper_config")
         if warper_config.params is None:
-            warper_config.params = dict()
+            warper_config.params = {}
         warper_config.params["n_unmasked"] = kwargs["n_unmasked"]
         warper_config.params["block_size"] = kwargs["block_size"]
         warper_config.params["n_embd"] = kwargs["n_embd"]

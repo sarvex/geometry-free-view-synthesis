@@ -64,7 +64,7 @@ class WarpTransformer(pl.LightningModule):
         for k in sd.keys():
             for ik in ignore_keys:
                 if k.startswith(ik):
-                    self.print("Deleting key {} from state_dict.".format(k))
+                    self.print(f"Deleting key {k} from state_dict.")
                     del sd[k]
         missing, unexpected = self.load_state_dict(sd, strict=False)
         print(f"Restored from {path} with {len(missing)} missing keys and {len(unexpected)} unexpected keys.")
@@ -163,8 +163,7 @@ class WarpTransformer(pl.LightningModule):
         bhwc = (zshape[0],zshape[2],zshape[3],zshape[1])
         quant_z = self.first_stage_model.quantize.get_codebook_entry(
             index.reshape(-1), shape=bhwc)
-        x = self.first_stage_model.decode(quant_z)
-        return x
+        return self.first_stage_model.decode(quant_z)
 
     @torch.no_grad()
     def log_images(self,
@@ -178,7 +177,7 @@ class WarpTransformer(pl.LightningModule):
                    det_sample=None,
                    **kwargs):
         det_sample = det_sample if det_sample is not None else self.log_det_sample
-        log = dict()
+        log = {}
         x, c = self.get_xc(batch, N)
         warpkwargs = self.get_warpkwargs(batch, N)
         for k in warpkwargs:
@@ -265,10 +264,10 @@ class WarpTransformer(pl.LightningModule):
         return x, c
 
     def get_warpkwargs(self, batch, N=None):
-        kwargs = dict()
-        for k, v in self.warpkwargs_keys.items():
-            kwargs[k] = self.get_input(v, batch, heuristics=k=="x")[:N]
-        return kwargs
+        return {
+            k: self.get_input(v, batch, heuristics=k == "x")[:N]
+            for k, v in self.warpkwargs_keys.items()
+        }
 
     def compute_loss(self, logits, targets, split="train"):
         loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)), targets.reshape(-1))
@@ -304,7 +303,7 @@ class WarpTransformer(pl.LightningModule):
         blacklist_weight_modules = (torch.nn.LayerNorm, torch.nn.Embedding)
         for mn, m in self.transformer.named_modules():
             for pn, p in m.named_parameters():
-                fpn = '%s.%s' % (mn, pn) if mn else pn # full param name
+                fpn = f'{mn}.{pn}' if mn else pn
                 if fpn.startswith("warper._midas"):
                     continue
 
@@ -333,9 +332,12 @@ class WarpTransformer(pl.LightningModule):
 
         inter_params = decay & no_decay
         union_params = decay | no_decay
-        assert len(inter_params) == 0, "parameters %s made it into both decay/no_decay sets!" % (str(inter_params), )
-        assert len(param_dict.keys() - union_params) == 0, "parameters %s were not separated into either decay/no_decay set!" \
-                                                    % (str(param_dict.keys() - union_params), )
+        assert (
+            len(inter_params) == 0
+        ), f"parameters {str(inter_params)} made it into both decay/no_decay sets!"
+        assert (
+            len(param_dict.keys() - union_params) == 0
+        ), f"parameters {str(param_dict.keys() - union_params)} were not separated into either decay/no_decay set!"
 
         # create the pytorch optimizer object
         optim_groups = [

@@ -11,12 +11,11 @@ def pose_to_sparse(txt_src, img_src, spa_dst, DEBUG=False, exists_ok=True,
 
     if not os.path.exists(opt.spa_dst):
         os.makedirs(opt.spa_dst)
-    else:
-        if DEBUG:
-            shutil.rmtree(opt.spa_dst)
-        elif not exists_ok:
-            print("Output directory exists, doing nothing")
-            return 0
+    elif DEBUG:
+        shutil.rmtree(opt.spa_dst)
+    elif not exists_ok:
+        print("Output directory exists, doing nothing")
+        return 0
 
 
     txts = sorted(glob.glob(os.path.join(opt.txt_src, "*.txt")))
@@ -26,7 +25,7 @@ def pose_to_sparse(txt_src, img_src, spa_dst, DEBUG=False, exists_ok=True,
         txts = txts[worker_idx::world_size]
 
     if DEBUG: txts = txts[:1]
-    failed = list()
+    failed = []
     for txt in txts:
         vidid = os.path.splitext(os.path.split(txt)[1])[0]
         print(f"Processing {vidid}")
@@ -34,12 +33,12 @@ def pose_to_sparse(txt_src, img_src, spa_dst, DEBUG=False, exists_ok=True,
         if (os.path.exists(os.path.join(opt.spa_dst, vidid, "sparse", "cameras.bin")) and
                 os.path.exists(os.path.join(opt.spa_dst, vidid, "sparse", "images.bin")) and
                 os.path.exists(os.path.join(opt.spa_dst, vidid, "sparse", "points3D.bin"))):
-            print("Found sparse model, skipping {}".format(vidid))
+            print(f"Found sparse model, skipping {vidid}")
             continue
 
         if os.path.exists(os.path.join(opt.spa_dst, vidid)):
             shutil.rmtree(os.path.join(opt.spa_dst, vidid))
-            print("Found partial output of previous run, removed {}".format(vidid))
+            print(f"Found partial output of previous run, removed {vidid}")
 
 
         # read camera poses for this sequence
@@ -60,9 +59,9 @@ def pose_to_sparse(txt_src, img_src, spa_dst, DEBUG=False, exists_ok=True,
 
         timestamps = vid_data[:,0].astype(np.int)
         if DEBUG: print(timestamps)
-        filenames = [str(ts)+".png" for ts in timestamps]
+        filenames = [f"{str(ts)}.png" for ts in timestamps]
 
-        if not len(filenames) > 1:
+        if len(filenames) <= 1:
             failed.append(vidid)
             print(f"Less than two frames, skipping {vidid}!")
             continue
@@ -72,7 +71,9 @@ def pose_to_sparse(txt_src, img_src, spa_dst, DEBUG=False, exists_ok=True,
             print(f"Could not find frames, skipping {vidid}!")
             continue
 
-        if not len(glob.glob(os.path.join(opt.img_src, vidid, "*.png"))) == len(filenames):
+        if len(glob.glob(os.path.join(opt.img_src, vidid, "*.png"))) != len(
+            filenames
+        ):
             failed.append(vidid)
             print(f"Could not find all frames, skipping {vidid}!")
             continue
@@ -134,7 +135,7 @@ def pose_to_sparse(txt_src, img_src, spa_dst, DEBUG=False, exists_ok=True,
         params[1] = height*K[1,1]
         params[2] = width*K[0,2]
         params[3] = height*K[1,2]
-        
+
         # update
         db.execute("UPDATE cameras SET params = ?  WHERE camera_id = ?",
                    (array_to_blob(params), camera_id))
@@ -160,7 +161,7 @@ def pose_to_sparse(txt_src, img_src, spa_dst, DEBUG=False, exists_ok=True,
         images_txt = os.path.join(pose_dir, "images.txt")
         # match image ids with filenames and export their extrinsics to images.txt
         images = db.execute("SELECT image_id, name, camera_id FROM images").fetchall()
-        lines = list()
+        lines = []
         for image in images:
             assert image[2] == camera_id
             image_id = image[0]
@@ -174,9 +175,8 @@ def pose_to_sparse(txt_src, img_src, spa_dst, DEBUG=False, exists_ok=True,
             Q = Rotation.from_matrix(R).as_quat()
             # from x,y,z,w to w,x,y,z
             line = " ".join(["{:.6f}".format(x) for x in [Q[3],Q[0],Q[1],Q[2],t[0],t[1],t[2]]])
-            line = "{} ".format(image_id)+line+" {} {}".format(camera_id, image_name)
-            lines.append(line)
-            lines.append("") # empty line for 3d points to be triangulated
+            line = f"{image_id} {line}" + f" {camera_id} {image_name}"
+            lines.extend((line, ""))
         with open(images_txt, "w") as f:
             f.write("\n".join(lines)+"\n")
 

@@ -124,16 +124,25 @@ def look_to(camera_pos, camera_dir, camera_up):
 
 def rotate_around_axis(angle, axis):
     axis = normalize(axis)
-    rotation = np.array([[cosd(angle)+axis[0]**2*(1-cosd(angle)),
-                          axis[0]*axis[1]*(1-cosd(angle))-axis[2]*sind(angle),
-                          axis[0]*axis[2]*(1-cosd(angle))+axis[1]*sind(angle)],
-                         [axis[1]*axis[0]*(1-cosd(angle))+axis[2]*sind(angle),
-                          cosd(angle)+axis[1]**2*(1-cosd(angle)),
-                          axis[1]*axis[2]*(1-cosd(angle))-axis[0]*sind(angle)],
-                         [axis[2]*axis[0]*(1-cosd(angle))-axis[1]*sind(angle),
-                          axis[2]*axis[1]*(1-cosd(angle))+axis[0]*sind(angle),
-                          cosd(angle)+axis[2]**2*(1-cosd(angle))]])
-    return rotation
+    return np.array(
+        [
+            [
+                cosd(angle) + axis[0] ** 2 * (1 - cosd(angle)),
+                axis[0] * axis[1] * (1 - cosd(angle)) - axis[2] * sind(angle),
+                axis[0] * axis[2] * (1 - cosd(angle)) + axis[1] * sind(angle),
+            ],
+            [
+                axis[1] * axis[0] * (1 - cosd(angle)) + axis[2] * sind(angle),
+                cosd(angle) + axis[1] ** 2 * (1 - cosd(angle)),
+                axis[1] * axis[2] * (1 - cosd(angle)) - axis[0] * sind(angle),
+            ],
+            [
+                axis[2] * axis[0] * (1 - cosd(angle)) - axis[1] * sind(angle),
+                axis[2] * axis[1] * (1 - cosd(angle)) + axis[0] * sind(angle),
+                cosd(angle) + axis[2] ** 2 * (1 - cosd(angle)),
+            ],
+        ]
+    )
 
 
 class Renderer(object):
@@ -243,8 +252,7 @@ def load_as_example(path, model="re"):
     im = np.array(im)/127.5-1.0
     im = im.astype(np.float32)
 
-    example = dict()
-    example["src_img"] = im
+    example = {"src_img": im}
     if model.startswith("re"):
         example["K"] = np.array([[184.0, 0.0, 184.0],
                                  [0.0, 184.0, 104.0],
@@ -367,6 +375,7 @@ if __name__ == "__main__":
 
     step = 0
     step_PHASE = 0
+    PRESSED = False
     while True:
         ######## Boring stuff
         clock.tick(40)
@@ -421,15 +430,15 @@ if __name__ == "__main__":
             print(CAM_SPEED)
 
         if keys[pygame.K_m]:
-            if not USE_MOUSE:
-                pygame.mouse.set_visible(False)
-                pygame.event.set_grab(True)
-                USE_MOUSE = True
-            else:
+            if USE_MOUSE:
                 pygame.mouse.set_visible(True)
                 pygame.event.set_grab(False)
                 USE_MOUSE = False
 
+            else:
+                pygame.mouse.set_visible(False)
+                pygame.event.set_grab(True)
+                USE_MOUSE = True
         # adjust for yaw and pitch
         rotation = np.array([[cosd(-camera_yaw), 0.0, sind(-camera_yaw)],
                              [0.0, 1.0, 0.0],
@@ -450,20 +459,17 @@ if __name__ == "__main__":
             RENDERING = True
             renderer.init(wrp_im, example, show_R, show_t)
 
-        PRESSED = False
         if any(keys[k] for k in [pygame.K_a, pygame.K_d, pygame.K_w,
                                  pygame.K_s]):
             RENDERING = False
 
-        # display
-        if not RENDERING:
-            with torch.no_grad():
+        with torch.no_grad():
+            if not RENDERING:
                 wrp_im = render_forward(src_ims, src_dms,
                                         show_R, show_t,
                                         K_src=K,
                                         K_dst=K_cam)
-        else:
-            with torch.no_grad():
+            else:
                 wrp_im = renderer()
 
         text = "Sampling" if renderer._active else None

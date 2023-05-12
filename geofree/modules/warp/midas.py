@@ -49,8 +49,6 @@ def render_forward(src_ims, src_dms,
     if alpha is not None:
         # used to be 50 but this is unstable even if we subtract the maximum
         importance = alpha/new_z
-        #importance = importance-importance.amin((1,2,3),keepdim=True)
-        importance = importance.exp()
     else:
         # use heuristic to rescale import between 0 and 10 to be stable in
         # float32
@@ -58,17 +56,15 @@ def render_forward(src_ims, src_dms,
         importance_min = importance.amin((1,2,3),keepdim=True)
         importance_max = importance.amax((1,2,3),keepdim=True)
         importance=(importance-importance_min)/(importance_max-importance_min+1e-6)*10-10
-        importance = importance.exp()
-
+    #importance = importance-importance.amin((1,2,3),keepdim=True)
+    importance = importance.exp()
     input_data = torch.cat([importance*src_ims, importance], 1)
     output_data = splatting_function("summation", input_data, flow)
 
     num = output_data[:,:-1,:,:]
     nom = output_data[:,-1:,:,:]
 
-    #rendered = num/(nom+1e-7)
-    rendered = num/nom.clamp(min=1e-8)
-    return rendered
+    return num/nom.clamp(min=1e-8)
 
 
 
@@ -231,7 +227,7 @@ class Midas(nn.Module):
         #error = (1-mask)*(dm[i]-(scale*dm+offset))**2
         N = (1-mask).sum(dim=(1,2)) # b
         m_sparse_dm = (1-mask)*sparse_dm # was mdm
-        m_sparse_dm[(1-mask)>0] = 1.0/m_sparse_dm[(1-mask)>0] # we align disparity
+        m_sparse_dm[mask < 1] = 1.0 / m_sparse_dm[mask < 1]
         m_dm = (1-mask)*dm # was mmi
         s = ((m_dm*m_sparse_dm).sum(dim=(1,2))-1/N*m_sparse_dm.sum(dim=(1,2))*m_dm.sum(dim=(1,2))) / ((m_dm**2).sum(dim=(1,2))-1/N*(m_dm.sum(dim=(1,2))**2))
         c = 1/N*(m_sparse_dm.sum(dim=(1,2))-s*m_dm.sum(dim=(1,2)))

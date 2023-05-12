@@ -99,7 +99,7 @@ class GeoTransformer(pl.LightningModule):
         for k in sd.keys():
             for ik in ignore_keys:
                 if k.startswith(ik):
-                    self.print("Deleting key {} from state_dict.".format(k))
+                    self.print(f"Deleting key {k} from state_dict.")
                     del sd[k]
         missing, unexpected = self.load_state_dict(sd, strict=False)
         print(f"Restored from {path} with {len(missing)} missing keys and {len(unexpected)} unexpected keys.")
@@ -157,10 +157,7 @@ class GeoTransformer(pl.LightningModule):
     @torch.no_grad()
     def get_layers(self, batch, xce=None):
         # interface for layer probing
-        if xce is None:
-            x, c, e = self.get_xce(batch)
-        else:
-            x, c, e = xce
+        x, c, e = self.get_xce(batch) if xce is None else xce
         quant_z, z_indices = self.encode_to_z(**x)
         _, _, dc_indices, embeddings = self.get_normalized_c(c, e)
         cz_indices = torch.cat((dc_indices, z_indices), dim=1)
@@ -168,8 +165,7 @@ class GeoTransformer(pl.LightningModule):
         trafo_layers = self.transformer(cz_indices[:, :-1],
                                   embeddings=embeddings,
                                   return_layers=True)
-        layers = [quant_z] + trafo_layers
-        return layers
+        return [quant_z] + trafo_layers
 
     def get_normalized_d_indices(self, batch, to_device=False):
         # interface for layer probing
@@ -292,8 +288,7 @@ class GeoTransformer(pl.LightningModule):
         bhwc = (zshape[0],zshape[2],zshape[3],zshape[1])
         quant_z = self.first_stage_model.quantize.get_codebook_entry(
             index.reshape(-1), shape=bhwc)
-        x = self.first_stage_model.decode(quant_z)
-        return x
+        return self.first_stage_model.decode(quant_z)
 
     @torch.no_grad()
     def log_images(self,
@@ -308,7 +303,6 @@ class GeoTransformer(pl.LightningModule):
                    entropy=False,
                    **kwargs):
         det_sample = det_sample if det_sample is not None else self.log_det_sample
-        log = dict()
         xdict, cdict, edict = self.get_xce(batch, N)
         for k in xdict:
             xdict[k] = xdict[k].to(device=self.device)
@@ -317,9 +311,7 @@ class GeoTransformer(pl.LightningModule):
         for k in edict:
             edict[k] = edict[k].to(device=self.device)
 
-        log["inputs"] = xdict["x"]
-        log["conditioning"] = cdict["c"]
-
+        log = {"inputs": xdict["x"], "conditioning": cdict["c"]}
         quant_z, z_indices = self.encode_to_z(**xdict)
         quant_d, quant_c, dc_indices, embeddings = self.get_normalized_c(cdict,edict)
 
@@ -430,18 +422,18 @@ class GeoTransformer(pl.LightningModule):
         return x
 
     def get_xce(self, batch, N=None):
-        xdict = dict()
-        for k, v in self.first_stage_key.items():
-            xdict[k] = self.get_input(v, batch, heuristics=k=="x")[:N]
-
-        cdict = dict()
-        for k, v in self.cond_stage_key.items():
-            cdict[k] = self.get_input(v, batch, heuristics=k=="c")[:N]
-
-        edict = dict()
-        for k, v in self.emb_stage_key.items():
-            edict[k] = self.get_input(v, batch, heuristics=False)[:N]
-
+        xdict = {
+            k: self.get_input(v, batch, heuristics=k == "x")[:N]
+            for k, v in self.first_stage_key.items()
+        }
+        cdict = {
+            k: self.get_input(v, batch, heuristics=k == "c")[:N]
+            for k, v in self.cond_stage_key.items()
+        }
+        edict = {
+            k: self.get_input(v, batch, heuristics=False)[:N]
+            for k, v in self.emb_stage_key.items()
+        }
         return xdict, cdict, edict
 
     def compute_loss(self, logits, targets, split="train"):
@@ -477,7 +469,7 @@ class GeoTransformer(pl.LightningModule):
         blacklist_weight_modules = (torch.nn.LayerNorm, torch.nn.Embedding)
         for mn, m in self.transformer.named_modules():
             for pn, p in m.named_parameters():
-                fpn = '%s.%s' % (mn, pn) if mn else pn # full param name
+                fpn = f'{mn}.{pn}' if mn else pn
 
                 if pn.endswith('bias'):
                     # all biases will not be decayed
@@ -493,19 +485,22 @@ class GeoTransformer(pl.LightningModule):
         no_decay.add('pos_emb')
 
         # validate that we considered every parameter
-        param_dict = {pn: p for pn, p in self.transformer.named_parameters()}
+        param_dict = dict(self.transformer.named_parameters())
         inter_params = decay & no_decay
         union_params = decay | no_decay
-        assert len(inter_params) == 0, "parameters %s made it into both decay/no_decay sets!" % (str(inter_params), )
-        assert len(param_dict.keys() - union_params) == 0, "parameters %s were not separated into either decay/no_decay set!" \
-                                                    % (str(param_dict.keys() - union_params), )
+        assert (
+            len(inter_params) == 0
+        ), f"parameters {str(inter_params)} made it into both decay/no_decay sets!"
+        assert (
+            len(param_dict.keys() - union_params) == 0
+        ), f"parameters {str(param_dict.keys() - union_params)} were not separated into either decay/no_decay set!"
 
         # create the pytorch optimizer object
         optim_groups = [
             {"params": [param_dict[pn] for pn in sorted(list(decay))], "weight_decay": 0.01},
             {"params": [param_dict[pn] for pn in sorted(list(no_decay))], "weight_decay": 0.0},
         ]
-        extra_parameters = list()
+        extra_parameters = []
         if self.emb_stage_trainable:
             extra_parameters += list(self.emb_stage_model.parameters())
         if hasattr(self, "merge_conv"):
@@ -607,7 +602,7 @@ class WarpGeoTransformer(pl.LightningModule):
         for k in sd.keys():
             for ik in ignore_keys:
                 if k.startswith(ik):
-                    self.print("Deleting key {} from state_dict.".format(k))
+                    self.print(f"Deleting key {k} from state_dict.")
                     del sd[k]
         missing, unexpected = self.load_state_dict(sd, strict=False)
         print(f"Restored from {path} with {len(missing)} missing keys and {len(unexpected)} unexpected keys.")
@@ -766,8 +761,7 @@ class WarpGeoTransformer(pl.LightningModule):
         bhwc = (zshape[0],zshape[2],zshape[3],zshape[1])
         quant_z = self.first_stage_model.quantize.get_codebook_entry(
             index.reshape(-1), shape=bhwc)
-        x = self.first_stage_model.decode(quant_z)
-        return x
+        return self.first_stage_model.decode(quant_z)
 
     @torch.no_grad()
     def log_images(self,
@@ -781,7 +775,6 @@ class WarpGeoTransformer(pl.LightningModule):
                    det_sample=None,
                    **kwargs):
         det_sample = det_sample if det_sample is not None else self.log_det_sample
-        log = dict()
         xdict, cdict, edict = self.get_xce(batch, N)
         for k in xdict:
             xdict[k] = xdict[k].to(device=self.device)
@@ -793,9 +786,7 @@ class WarpGeoTransformer(pl.LightningModule):
         for k in warpkwargs:
             warpkwargs[k] = warpkwargs[k].to(device=self.device)
 
-        log["inputs"] = xdict["x"]
-        log["conditioning"] = cdict["c"]
-
+        log = {"inputs": xdict["x"], "conditioning": cdict["c"]}
         quant_z, z_indices = self.encode_to_z(**xdict)
         quant_d, quant_c, dc_indices, embeddings = self.get_normalized_c(cdict,
                                                                          edict)
@@ -868,25 +859,25 @@ class WarpGeoTransformer(pl.LightningModule):
         return x
 
     def get_xce(self, batch, N=None):
-        xdict = dict()
-        for k, v in self.first_stage_key.items():
-            xdict[k] = self.get_input(v, batch, heuristics=k=="x")[:N]
-
-        cdict = dict()
-        for k, v in self.cond_stage_key.items():
-            cdict[k] = self.get_input(v, batch, heuristics=k=="c")[:N]
-
-        edict = dict()
-        for k, v in self.emb_stage_key.items():
-            edict[k] = self.get_input(v, batch, heuristics=False)[:N]
-
+        xdict = {
+            k: self.get_input(v, batch, heuristics=k == "x")[:N]
+            for k, v in self.first_stage_key.items()
+        }
+        cdict = {
+            k: self.get_input(v, batch, heuristics=k == "c")[:N]
+            for k, v in self.cond_stage_key.items()
+        }
+        edict = {
+            k: self.get_input(v, batch, heuristics=False)[:N]
+            for k, v in self.emb_stage_key.items()
+        }
         return xdict, cdict, edict
 
     def get_warpkwargs(self, batch, N=None):
-        kwargs = dict()
-        for k, v in self.warpkwargs_keys.items():
-            kwargs[k] = self.get_input(v, batch, heuristics=k=="x")[:N]
-        return kwargs
+        return {
+            k: self.get_input(v, batch, heuristics=k == "x")[:N]
+            for k, v in self.warpkwargs_keys.items()
+        }
 
     def compute_loss(self, logits, targets, split="train"):
         loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)), targets.reshape(-1))
@@ -922,7 +913,7 @@ class WarpGeoTransformer(pl.LightningModule):
         blacklist_weight_modules = (torch.nn.LayerNorm, torch.nn.Embedding)
         for mn, m in self.transformer.named_modules():
             for pn, p in m.named_parameters():
-                fpn = '%s.%s' % (mn, pn) if mn else pn # full param name
+                fpn = f'{mn}.{pn}' if mn else pn
                 if fpn.startswith("warper._midas"):
                     continue
 
@@ -950,16 +941,19 @@ class WarpGeoTransformer(pl.LightningModule):
         param_dict = {pn: p for pn, p in self.transformer.named_parameters() if not pn.startswith("warper._midas")}
         inter_params = decay & no_decay
         union_params = decay | no_decay
-        assert len(inter_params) == 0, "parameters %s made it into both decay/no_decay sets!" % (str(inter_params), )
-        assert len(param_dict.keys() - union_params) == 0, "parameters %s were not separated into either decay/no_decay set!" \
-                                                    % (str(param_dict.keys() - union_params), )
+        assert (
+            len(inter_params) == 0
+        ), f"parameters {str(inter_params)} made it into both decay/no_decay sets!"
+        assert (
+            len(param_dict.keys() - union_params) == 0
+        ), f"parameters {str(param_dict.keys() - union_params)} were not separated into either decay/no_decay set!"
 
         # create the pytorch optimizer object
         optim_groups = [
             {"params": [param_dict[pn] for pn in sorted(list(decay))], "weight_decay": 0.01},
             {"params": [param_dict[pn] for pn in sorted(list(no_decay))], "weight_decay": 0.0},
         ]
-        extra_parameters = list()
+        extra_parameters = []
         if self.emb_stage_trainable:
             extra_parameters += list(self.emb_stage_model.parameters())
         if hasattr(self, "merge_conv"):

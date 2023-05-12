@@ -79,7 +79,7 @@ class Net2NetTransformer(pl.LightningModule):
         for k in sd.keys():
             for ik in ignore_keys:
                 if k.startswith(ik):
-                    self.print("Deleting key {} from state_dict.".format(k))
+                    self.print(f"Deleting key {k} from state_dict.")
                     del sd[k]
         missing, unexpected = self.load_state_dict(sd, strict=False)
         print(f"Restored from {path} with {len(missing)} missing keys and {len(unexpected)} unexpected keys.")
@@ -115,10 +115,7 @@ class Net2NetTransformer(pl.LightningModule):
         # one step to produce the logits
         _, z_indices = self.encode_to_z(x)
         _, c_indices = self.encode_to_c(c)
-        embeddings = None
-        if e is not None:
-            embeddings = self.encode_to_e(e)
-
+        embeddings = self.encode_to_e(e) if e is not None else None
         if self.training and self.pkeep < 1.0:
             mask = torch.bernoulli(self.pkeep*torch.ones(z_indices.shape,
                                                          device=z_indices.device))
@@ -191,11 +188,7 @@ class Net2NetTransformer(pl.LightningModule):
         if self.downsample_cond_size > -1:
             c = F.interpolate(c, size=(self.downsample_cond_size, self.downsample_cond_size))
         quant_c, _, info = self.cond_stage_model.encode(c)
-        if quant_c is not None:
-            # this is the standard case
-            indices = info[2].view(quant_c.shape[0], -1)
-        else:  # e.g. for SlotPretraining.
-            indices = info[2]
+        indices = info[2] if quant_c is None else info[2].view(quant_c.shape[0], -1)
         return quant_c, indices
 
     def encode_to_e(self, e):
@@ -206,8 +199,7 @@ class Net2NetTransformer(pl.LightningModule):
         bhwc = (zshape[0],zshape[2],zshape[3],zshape[1])
         quant_z = self.first_stage_model.quantize.get_codebook_entry(
             index.reshape(-1), shape=bhwc)
-        x = self.first_stage_model.decode(quant_z)
-        return x
+        return self.first_stage_model.decode(quant_z)
 
     @torch.no_grad()
     def log_images(self,
@@ -221,7 +213,7 @@ class Net2NetTransformer(pl.LightningModule):
                    det_sample=None,
                    **kwargs):
         det_sample = det_sample if det_sample is not None else self.log_det_sample
-        log = dict()
+        log = {}
         x, c = self.get_xc(batch, N)
         x = x.to(device=self.device)
         if type(c) != list:
@@ -235,7 +227,7 @@ class Net2NetTransformer(pl.LightningModule):
             e = e.to(device=self.device)
             embeddings = self.encode_to_e(e)
 
-        if half_sample and not (self.pkeep < 0.):
+        if half_sample and self.pkeep >= 0.0:
             # create a "half"" sample
             z_start_indices = z_indices[:,:z_indices.shape[1]//2]
             index_sample = self.sample(z_start_indices, c_indices,
@@ -306,12 +298,10 @@ class Net2NetTransformer(pl.LightningModule):
     def get_input(self, key, batch):
         x = batch[key]
         if self.use_first_stage_get_input:
-            x = self.first_stage_model.get_input(batch, key)
-        else:
-            if len(x.shape) == 3:
-                x = x[..., None]
-            x = x.permute(0, 3, 1, 2).to(memory_format=torch.contiguous_format)
-        return x
+            return self.first_stage_model.get_input(batch, key)
+        if len(x.shape) == 3:
+            x = x[..., None]
+        return x.permute(0, 3, 1, 2).to(memory_format=torch.contiguous_format)
 
     def get_xc(self, batch, N=None):
         x = self.get_input(self.first_stage_key, batch)
@@ -363,7 +353,7 @@ class Net2NetTransformer(pl.LightningModule):
         blacklist_weight_modules = (torch.nn.LayerNorm, torch.nn.Embedding)
         for mn, m in self.transformer.named_modules():
             for pn, p in m.named_parameters():
-                fpn = '%s.%s' % (mn, pn) if mn else pn # full param name
+                fpn = f'{mn}.{pn}' if mn else pn
 
                 if pn.endswith('bias'):
                     # all biases will not be decayed
@@ -379,12 +369,15 @@ class Net2NetTransformer(pl.LightningModule):
         no_decay.add('pos_emb')
 
         # validate that we considered every parameter
-        param_dict = {pn: p for pn, p in self.transformer.named_parameters()}
+        param_dict = dict(self.transformer.named_parameters())
         inter_params = decay & no_decay
         union_params = decay | no_decay
-        assert len(inter_params) == 0, "parameters %s made it into both decay/no_decay sets!" % (str(inter_params), )
-        assert len(param_dict.keys() - union_params) == 0, "parameters %s were not separated into either decay/no_decay set!" \
-                                                    % (str(param_dict.keys() - union_params), )
+        assert (
+            len(inter_params) == 0
+        ), f"parameters {str(inter_params)} made it into both decay/no_decay sets!"
+        assert (
+            len(param_dict.keys() - union_params) == 0
+        ), f"parameters {str(param_dict.keys() - union_params)} were not separated into either decay/no_decay set!"
 
         # create the pytorch optimizer object
         optim_groups = [
@@ -496,7 +489,7 @@ class WarpingFeatureTransformer(pl.LightningModule):
         for k in sd.keys():
             for ik in ignore_keys:
                 if k.startswith(ik):
-                    self.print("Deleting key {} from state_dict.".format(k))
+                    self.print(f"Deleting key {k} from state_dict.")
                     del sd[k]
         missing, unexpected = self.load_state_dict(sd, strict=False)
         print(f"Restored from {path} with {len(missing)} missing keys and {len(unexpected)} unexpected keys.")
@@ -526,10 +519,7 @@ class WarpingFeatureTransformer(pl.LightningModule):
         # one step to produce the logits
         _, z_indices = self.encode_to_z(**xdict)
         _, c_indices = self.encode_to_c(**cdict)
-        embeddings = None
-        if e is not None:
-            embeddings = self.encode_to_e(e)
-
+        embeddings = self.encode_to_e(e) if e is not None else None
         if self.training and self.pkeep < 1.0:
             mask = torch.bernoulli(self.pkeep*torch.ones(z_indices.shape,
                                                          device=z_indices.device))
@@ -610,11 +600,7 @@ class WarpingFeatureTransformer(pl.LightningModule):
         # continue with quantization
         quant_c, _, info = self.cond_stage_model.quantize(h)
 
-        if quant_c is not None:
-            # this is the standard case
-            indices = info[2].view(quant_c.shape[0], -1)
-        else:  # e.g. for SlotPretraining.
-            indices = info[2]
+        indices = info[2] if quant_c is None else info[2].view(quant_c.shape[0], -1)
         return quant_c, indices
 
     @torch.no_grad()
@@ -622,8 +608,7 @@ class WarpingFeatureTransformer(pl.LightningModule):
         bhwc = (zshape[0],zshape[2],zshape[3],zshape[1])
         quant_z = self.first_stage_model.quantize.get_codebook_entry(
             index.reshape(-1), shape=bhwc)
-        x = self.first_stage_model.decode(quant_z)
-        return x
+        return self.first_stage_model.decode(quant_z)
 
     @torch.no_grad()
     def log_images(self,
@@ -637,7 +622,7 @@ class WarpingFeatureTransformer(pl.LightningModule):
                    det_sample=None,
                    **kwargs):
         det_sample = det_sample if det_sample is not None else self.log_det_sample
-        log = dict()
+        log = {}
         xdict, cdict = self.get_xc(batch, N)
         for k in xdict:
             xdict[k] = xdict[k].to(device=self.device)
@@ -740,14 +725,14 @@ class WarpingFeatureTransformer(pl.LightningModule):
         return x
 
     def get_xc(self, batch, N=None):
-        xdict = dict()
-        for k, v in self.first_stage_key.items():
-            xdict[k] = self.get_input(v, batch, heuristics=k=="x")[:N]
-
-        cdict = dict()
-        for k, v in self.cond_stage_key.items():
-            cdict[k] = self.get_input(v, batch, heuristics=k=="c")[:N]
-
+        xdict = {
+            k: self.get_input(v, batch, heuristics=k == "x")[:N]
+            for k, v in self.first_stage_key.items()
+        }
+        cdict = {
+            k: self.get_input(v, batch, heuristics=k == "c")[:N]
+            for k, v in self.cond_stage_key.items()
+        }
         return xdict, cdict
 
     def get_e(self, batch, N=None):
@@ -789,7 +774,7 @@ class WarpingFeatureTransformer(pl.LightningModule):
         blacklist_weight_modules = (torch.nn.LayerNorm, torch.nn.Embedding)
         for mn, m in self.transformer.named_modules():
             for pn, p in m.named_parameters():
-                fpn = '%s.%s' % (mn, pn) if mn else pn # full param name
+                fpn = f'{mn}.{pn}' if mn else pn
 
                 if pn.endswith('bias'):
                     # all biases will not be decayed
@@ -805,12 +790,15 @@ class WarpingFeatureTransformer(pl.LightningModule):
         no_decay.add('pos_emb')
 
         # validate that we considered every parameter
-        param_dict = {pn: p for pn, p in self.transformer.named_parameters()}
+        param_dict = dict(self.transformer.named_parameters())
         inter_params = decay & no_decay
         union_params = decay | no_decay
-        assert len(inter_params) == 0, "parameters %s made it into both decay/no_decay sets!" % (str(inter_params), )
-        assert len(param_dict.keys() - union_params) == 0, "parameters %s were not separated into either decay/no_decay set!" \
-                                                    % (str(param_dict.keys() - union_params), )
+        assert (
+            len(inter_params) == 0
+        ), f"parameters {str(inter_params)} made it into both decay/no_decay sets!"
+        assert (
+            len(param_dict.keys() - union_params) == 0
+        ), f"parameters {str(param_dict.keys() - union_params)} were not separated into either decay/no_decay set!"
 
         # create the pytorch optimizer object
         optim_groups = [
